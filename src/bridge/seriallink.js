@@ -26,6 +26,8 @@ export function createSerialLink(getState, handlers) {
     setStatus('wait');
     try {
       await p.open({ baudRate: 115200 });
+      // ESP32-S3 USB CDC gates its TX on DTR; Chrome doesn't assert it on open
+      await p.setSignals({ dataTerminalReady: true, requestToSend: true });
     } catch {
       setStatus('off');
       wanted = false;

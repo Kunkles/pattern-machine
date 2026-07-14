@@ -56,6 +56,7 @@ uint16_t C_BG, C_OFF, C_DIM, C_TEXT, C_TEAL, C_RED, C_WHITE;
 // ── Link (WebSocket + USB serial, same protocol) ─────────────────────────────
 
 uint32_t lastSerialRx = 0;
+uint32_t rxCount = 0; // messages received on either transport (shown on screen)
 
 bool usbLinked() { return lastSerialRx && millis() - lastSerialRx < 5000; }
 bool linked()    { return ws.connectedClients() > 0 || usbLinked(); }
@@ -112,7 +113,19 @@ void handleMsg(uint8_t *payload, size_t len) {
     JsonDocument d;
     d["t"] = "pong";
     sendJson(d);
+  } else if (!strcmp(t, "dump")) { // debug: report current state
+    JsonDocument d;
+    d["t"] = "dump";
+    d["bpm"] = bpm;
+    d["playing"] = playing;
+    d["rx"] = rxCount;
+    JsonArray lens = d["lens"].to<JsonArray>();
+    JsonArray k = d["kick"].to<JsonArray>();
+    for (int i = 0; i < NTRACKS; i++) lens.add(tracks[i].len);
+    for (int s = 0; s < tracks[0].len; s++) k.add(tracks[0].steps[s] ? 1 : 0);
+    sendJson(d);
   }
+  rxCount++;
 }
 
 // Newline-delimited JSON over USB CDC — same messages as the WebSocket.
@@ -169,6 +182,16 @@ void drawRing() {
     if (i == cursorStep)  // cursor sits just outside the ring
       canvas.fillArc(120, 120, 114, 119, a0, a1, C_WHITE);
   }
+
+  // playhead needle sweeping inside the ring
+  if (playing && playhead[viewTrack] >= 0) {
+    float mid = (-90 + (playhead[viewTrack] + 0.5f) * seg) * DEG_TO_RAD;
+    float dx = cosf(mid), dy = sinf(mid);
+    canvas.fillTriangle(120 + dx * 92, 120 + dy * 92,          // tip at the ring
+                        120 + dx * 46 - dy * 4, 120 + dy * 46 + dx * 4,
+                        120 + dx * 46 + dy * 4, 120 + dy * 46 - dx * 4,
+                        C_RED);
+  }
 }
 
 void drawCenter() {
@@ -199,6 +222,9 @@ void drawCenter() {
 
   for (int i = 0; i < NTRACKS; i++)  // track indicator dots
     canvas.fillCircle(102 + i * 12, 190, 3, i == viewTrack ? tracks[i].color : C_DIM);
+
+  canvas.setTextColor(C_DIM, C_BG); // received-message counter (debug)
+  canvas.drawString("rx " + String(rxCount), 120, 205);
 }
 
 void draw() {
@@ -278,7 +304,8 @@ void setup() {
   canvas.setPsram(true);
   canvas.createSprite(240, 240);
 
-  Serial.begin(115200); // USB CDC
+  Serial.setRxBufferSize(4096); // a full state message arrives as one ~500B burst
+  Serial.begin(115200);         // USB CDC
 
   M5Dial.update();
   if (M5Dial.BtnA.isPressed()) {
