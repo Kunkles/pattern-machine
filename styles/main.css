@@ -48,6 +48,9 @@ h1 {
 .btn:hover { border-color: var(--amber); }
 .btn.play { color: var(--amber); font-size: 14px; min-width: 44px; }
 .btn.mode { color: var(--teal); min-width: 54px; }
+.btn.dial { color: var(--dim); }
+.btn.dial.wait { color: var(--amber); border-color: var(--amber); }
+.btn.dial.on { color: var(--teal); border-color: var(--teal); }
 .btn.small { padding: 5px 9px; font-size: 11px; }
 .btn.active { background: var(--amber); color: #12141a; border-color: var(--amber); }
 

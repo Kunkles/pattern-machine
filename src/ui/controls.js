@@ -26,6 +26,7 @@ export function makeControls(state, handlers) {
   bpm.addEventListener('input', () => {
     state.bpm = +bpm.value;
     bpmVal.textContent = `${state.bpm} BPM`;
+    if (handlers.onChange) handlers.onChange();
   });
   bpmVal.textContent = `${state.bpm} BPM`;
   bpmWrap.append(bpm, bpmVal);
@@ -56,6 +57,7 @@ export function makeControls(state, handlers) {
     bpm.value = state.bpm;
     bpmVal.textContent = `${state.bpm} BPM`;
     renderMode();
+    if (handlers.onChange) handlers.onChange();
   });
   renderMode();
 
@@ -65,10 +67,20 @@ export function makeControls(state, handlers) {
   rand.textContent = 'RANDOMIZE';
   rand.addEventListener('click', () => handlers.randomizeAll());
 
-  bar.append(play, bpmWrap, sig, mode, rand);
+  // Dial pod link (firmware/m5dial-pod)
+  const dial = document.createElement('button');
+  dial.className = 'btn dial';
+  dial.textContent = 'DIAL';
+  dial.addEventListener('click', () => handlers.onDial());
+
+  bar.append(play, bpmWrap, sig, mode, rand, dial);
 
   return {
     el: bar,
     setPlaying(on) { play.textContent = on ? '■' : '▶'; },
+    setDialStatus(s) {
+      dial.classList.toggle('on', s === 'on');
+      dial.classList.toggle('wait', s === 'wait');
+    },
   };
 }
