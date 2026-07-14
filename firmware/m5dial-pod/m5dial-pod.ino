@@ -3,19 +3,17 @@
 
   One M5Stack Dial shows one track as a ring of steps, synced live to the
   Pattern Machine web app (https://github.com/Kunkles/pattern-machine).
-  The dial hosts a WebSocket server; the browser connects to it, pushes
-  pattern state, and streams playhead positions. The browser does all audio —
-  the dial is a control surface.
+  Two transports carry the same JSON protocol; the browser does all audio —
+  the dial is a control surface:
+    - USB-C serial (WebSerial): plug into the computer, click USB in the app.
+    - WiFi WebSocket server on :81: click DIAL in the app. Hold the encoder
+      button while powering on to open the WiFi setup portal.
 
   Rotate           move cursor around the ring   (4 ticks per detent)
   Click            toggle step under cursor
   Double-click     re-roll (randomize) this track
   Hold (500 ms)    switch to next track
   Touch center     play / stop
-
-  On boot the dial joins WiFi (captive portal on first run, same flow as the
-  EcoFlow dial) and shows its ws:// address — enter that in the web app's
-  DIAL button.
 */
 
 #include "M5Dial.h"
@@ -55,14 +53,18 @@ long lastEnc = 0;
 
 uint16_t C_BG, C_OFF, C_DIM, C_TEXT, C_TEAL, C_RED, C_WHITE;
 
-// ── WebSocket ────────────────────────────────────────────────────────────────
+// ── Link (WebSocket + USB serial, same protocol) ─────────────────────────────
 
-bool webConnected() { return ws.connectedClients() > 0; }
+uint32_t lastSerialRx = 0;
+
+bool usbLinked() { return lastSerialRx && millis() - lastSerialRx < 5000; }
+bool linked()    { return ws.connectedClients() > 0 || usbLinked(); }
 
 void sendJson(JsonDocument &doc) {
   String out;
   serializeJson(doc, out);
   ws.broadcastTXT(out);
+  Serial.println(out); // dropped by CDC if no host is listening
 }
 
 void sendToggle(uint8_t tr, uint8_t st) {
@@ -106,6 +108,31 @@ void handleMsg(uint8_t *payload, size_t len) {
     if (!playing) memset(playhead, -1, sizeof(playhead));
     if (cursorStep >= tracks[viewTrack].len) cursorStep = 0;
     dirty = true;
+  } else if (!strcmp(t, "ping")) {
+    JsonDocument d;
+    d["t"] = "pong";
+    sendJson(d);
+  }
+}
+
+// Newline-delimited JSON over USB CDC — same messages as the WebSocket.
+void serialPoll() {
+  static char buf[4096];
+  static size_t n = 0;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      buf[n] = 0;
+      if (n) {
+        bool was = linked();
+        lastSerialRx = millis();
+        handleMsg((uint8_t *)buf, n);
+        if (!was) dirty = true;
+      }
+      n = 0;
+    } else if (n < sizeof(buf) - 1) {
+      buf[n++] = c;
+    }
   }
 }
 
@@ -159,11 +186,15 @@ void drawCenter() {
   if (playing) canvas.fillRect(112, 122, 16, 16, C_TEAL);            // stop square
   else canvas.fillTriangle(114, 120, 114, 140, 132, 130, tk.color);  // play arrow
 
-  canvas.setTextColor(webConnected() ? C_TEAL : C_DIM, C_BG);
-  canvas.drawString(webConnected() ? "WEB LINKED" : "NO WEB", 120, 156);
-  if (!webConnected()) {
+  canvas.setTextColor(linked() ? C_TEAL : C_DIM, C_BG);
+  canvas.drawString(linked() ? (usbLinked() ? "USB LINKED" : "WEB LINKED")
+                             : "CONNECT USB OR DIAL", 120, 156);
+  if (!linked()) {
     canvas.setTextColor(C_DIM, C_BG);
-    canvas.drawString("ws://" + WiFi.localIP().toString() + ":81", 120, 172);
+    canvas.drawString(WiFi.status() == WL_CONNECTED
+                          ? "ws://" + WiFi.localIP().toString() + ":81"
+                          : "no wifi - hold knob at boot to set up",
+                      120, 172);
   }
 
   for (int i = 0; i < NTRACKS; i++)  // track indicator dots
@@ -247,17 +278,22 @@ void setup() {
   canvas.setPsram(true);
   canvas.createSprite(240, 240);
 
-  M5Dial.Display.setTextDatum(middle_center);
-  M5Dial.Display.setFont(&fonts::Font2);
-  M5Dial.Display.drawString("WiFi: join " SETUP_SSID, 120, 110);
-  M5Dial.Display.drawString("if setup is needed", 120, 130);
+  Serial.begin(115200); // USB CDC
 
-  WiFiManager wm;
-  wm.setConfigPortalTimeout(180);
-  wm.autoConnect(SETUP_SSID);
-
-  MDNS.begin(MDNS_NAME);
-  MDNS.addService("ws", "tcp", WS_PORT);
+  M5Dial.update();
+  if (M5Dial.BtnA.isPressed()) {
+    // encoder held at power-on → blocking WiFi setup portal
+    M5Dial.Display.setTextDatum(middle_center);
+    M5Dial.Display.setFont(&fonts::Font2);
+    M5Dial.Display.drawString("WIFI SETUP", 120, 100);
+    M5Dial.Display.drawString("join " SETUP_SSID " from a phone", 120, 124);
+    WiFiManager wm;
+    wm.setConfigPortalTimeout(180);
+    wm.startConfigPortal(SETUP_SSID);
+  } else {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(); // stored credentials, non-blocking; USB works regardless
+  }
 
   ws.begin();
   ws.onEvent(onWsEvent);
@@ -268,6 +304,22 @@ void setup() {
 void loop() {
   M5Dial.update();
   ws.loop();
+  serialPoll();
+
+  static bool mdnsUp = false;
+  if (!mdnsUp && WiFi.status() == WL_CONNECTED) {
+    MDNS.begin(MDNS_NAME);
+    MDNS.addService("ws", "tcp", WS_PORT);
+    mdnsUp = true;
+    dirty = true; // show the ws:// address
+  }
+
+  static bool wasLinked = false;
+  if (linked() != wasLinked) { // catches USB link timing out too
+    wasLinked = linked();
+    dirty = true;
+  }
+
   handleInput();
   if (dirty) draw();
   delay(5);

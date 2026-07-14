@@ -33,22 +33,28 @@ arduino-cli compile --fqbn esp32:esp32:m5stack_dial --board-options PartitionSch
 arduino-cli upload  --fqbn esp32:esp32:m5stack_dial -p /dev/cu.usbmodem* firmware/m5dial-pod
 ```
 
-## First run
+## Connecting — USB (simplest) or WiFi
 
-1. The dial opens a `PatternPod-Setup` captive portal if it has no WiFi
-   credentials (same WiFiManager flow as the EcoFlow dial). Join it from your
-   phone and enter your network.
-2. The dial then shows its address, e.g. `ws://192.168.1.42:81`
-   (`ws://patternpod.local:81` also works via mDNS on the same network).
-3. In the web app (`npm run dev`), click **DIAL** and enter that address.
-   The button turns teal when linked; the pod says `WEB LINKED`.
-4. Edit steps from either side — they stay in sync. Press play on either side;
-   sound comes from the browser.
+**USB-C:** plug the dial into the computer, open the web app in Chrome/Edge
+(`npm run dev`), click **USB**, and pick the `usbmodem` port. Done — no WiFi
+setup needed. Note: the web app holds the serial port, so click USB again to
+disconnect before reflashing firmware.
 
-## Protocol (JSON over WebSocket, dial = server on port 81)
+**WiFi:** hold the encoder button while powering on to open the
+`PatternPod-Setup` captive portal (same WiFiManager flow as the EcoFlow dial)
+and join it from a phone. Once on your network the dial shows its address,
+e.g. `ws://192.168.1.42:81` (`ws://patternpod.local:81` also works via mDNS).
+Click **DIAL** in the web app and enter it.
 
-Web → dial: `{"t":"state", bpm, playing, tracks:[{n, len, steps:[0/1…], sparse:[idx…]}]}`
-and `{"t":"ph", tr, st}` per step for playhead sweep.
+Either way the button turns teal when linked and the pod says `USB LINKED` /
+`WEB LINKED`. Edit steps from either side — they stay in sync. Press play on
+either side; sound comes from the browser.
+
+## Protocol (same JSON both ways: WebSocket on :81, or newline-delimited over USB CDC)
+
+Web → dial: `{"t":"state", bpm, playing, tracks:[{n, len, steps:[0/1…], sparse:[idx…]}]}`,
+`{"t":"ph", tr, st}` per step for playhead sweep, and `{"t":"ping"}` (dial
+answers `{"t":"pong"}`; any received line keeps the USB link indicator alive).
 
 Dial → web: `{"t":"toggle", tr, st}`, `{"t":"play"}`, `{"t":"stop"}`,
 `{"t":"rand", tr}`. The web app is the source of truth — it applies the edit

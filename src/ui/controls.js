@@ -67,20 +67,31 @@ export function makeControls(state, handlers) {
   rand.textContent = 'RANDOMIZE';
   rand.addEventListener('click', () => handlers.randomizeAll());
 
-  // Dial pod link (firmware/m5dial-pod)
+  // Dial pod links (firmware/m5dial-pod): WiFi WebSocket and USB serial
   const dial = document.createElement('button');
   dial.className = 'btn dial';
   dial.textContent = 'DIAL';
+  dial.title = 'Link a pod over WiFi (WebSocket)';
   dial.addEventListener('click', () => handlers.onDial());
 
-  bar.append(play, bpmWrap, sig, mode, rand, dial);
+  const usb = document.createElement('button');
+  usb.className = 'btn dial';
+  usb.textContent = 'USB';
+  usb.title = 'Link a pod over USB-C (WebSerial)';
+  usb.addEventListener('click', () => handlers.onUsb());
+
+  bar.append(play, bpmWrap, sig, mode, rand, dial, usb);
+
+  const setLink = (btn) => (s) => {
+    btn.classList.toggle('on', s === 'on');
+    btn.classList.toggle('wait', s === 'wait');
+  };
 
   return {
     el: bar,
     setPlaying(on) { play.textContent = on ? '■' : '▶'; },
-    setDialStatus(s) {
-      dial.classList.toggle('on', s === 'on');
-      dial.classList.toggle('wait', s === 'wait');
-    },
+    setDialStatus: setLink(dial),
+    setUsbStatus: setLink(usb),
+    hideUsb() { usb.style.display = 'none'; },
   };
 }
